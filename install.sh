@@ -1,46 +1,49 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO_ARCHIVE_URL="${VVILOG_CLI_ARCHIVE_URL:-https://github.com/liam798/vvilog-cli/archive/refs/heads/main.tar.gz}"
+VERSION="${VVILOG_CLI_VERSION:-v0.1.0}"
+BASE_URL="${VVILOG_CLI_BASE_URL:-https://github.com/liam798/vvilog-cli/releases/download/$VERSION}"
 PREFIX="${VVILOG_INSTALL_DIR:-$HOME/.local/bin}"
 STATE_DIR="${VVILOG_STATE_DIR:-$HOME/.vvilog}"
-
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "vvilog install error: missing command 'cargo'" >&2
-  exit 1
-fi
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "vvilog install error: missing command 'curl'" >&2
   exit 1
 fi
 
-if ! command -v tar >/dev/null 2>&1; then
-  echo "vvilog install error: missing command 'tar'" >&2
-  exit 1
-fi
-
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)"
-SOURCE_DIR="$SCRIPT_DIR"
-TMP_DIR=""
-
-if [ ! -f "$SOURCE_DIR/Cargo.toml" ]; then
-  TMP_DIR="$(mktemp -d)"
-  curl -fsSL "$REPO_ARCHIVE_URL" | tar -xz -C "$TMP_DIR"
-  SOURCE_DIR="$(find "$TMP_DIR" -maxdepth 1 -type d -name 'vvilog-cli-*' | head -n 1)"
-  if [ -z "$SOURCE_DIR" ] || [ ! -f "$SOURCE_DIR/Cargo.toml" ]; then
-    echo "vvilog install error: failed to unpack CLI source" >&2
+case "$(uname -s)" in
+  Darwin) os="darwin" ;;
+  Linux) os="linux" ;;
+  *)
+    echo "vvilog install error: unsupported OS $(uname -s)" >&2
     exit 1
-  fi
-fi
+    ;;
+esac
 
-cargo build --manifest-path "$SOURCE_DIR/Cargo.toml" --release
+case "$(uname -m)" in
+  arm64 | aarch64) arch="arm64" ;;
+  x86_64 | amd64) arch="amd64" ;;
+  *)
+    echo "vvilog install error: unsupported arch $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+asset="vvilog-${os}-${arch}"
+url="${BASE_URL}/${asset}"
+tmp="${TMPDIR:-/tmp}/vvilog-install-$$"
+
+cleanup() {
+  rm -f "$tmp"
+}
+trap cleanup EXIT INT TERM
+
+echo "Downloading VviLog CLI from $url..."
+curl -fsSL "$url" -o "$tmp"
+chmod 0755 "$tmp"
+
 mkdir -p "$PREFIX" "$STATE_DIR"
-install -m 0755 "$SOURCE_DIR/target/release/vvilog" "$PREFIX/vvilog"
-
-if [ -n "$TMP_DIR" ]; then
-  rm -rf "$TMP_DIR"
-fi
+mv "$tmp" "$PREFIX/vvilog"
 
 echo "VviLog CLI installed:"
 echo "  binary: $PREFIX/vvilog"

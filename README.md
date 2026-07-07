@@ -6,7 +6,7 @@
 
 ```bash
 cd /path/to/vvilog-cli
-sh install.sh
+cargo build --release
 ```
 
 也可以通过以下命令一键在线安装：
@@ -79,7 +79,7 @@ vvilog manage-request delete /project/demo
 
 ## 更新
 
-`vvilog update` 默认从公开 `vvilog-cli` 仓库检查 `Cargo.toml` 版本；版本相同则不安装，发现新版本时才下载 `install.sh` 并覆盖本机 `~/.local/bin/vvilog`。更新命令只更新 CLI 二进制，不下载 skills；skills 由 `vvilog skills` 独立管理。
+`vvilog update` 默认从公开 `vvilog-cli` GitHub Release 检查最新版本；版本相同则不安装，发现新版本时才下载 `install.sh` 并覆盖本机 `~/.local/bin/vvilog`。安装脚本下载对应平台的预编译二进制，不要求用户本地安装 Rust。更新命令只更新 CLI 二进制，不下载 skills；skills 由 `vvilog skills` 独立管理。
 
 ```bash
 vvilog update --dry-run

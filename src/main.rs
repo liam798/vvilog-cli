@@ -13,8 +13,8 @@ use std::process::{Command, Stdio};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_CLI_INSTALL_URL: &str =
     "https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh";
-const DEFAULT_CLI_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/liam798/vvilog-cli/main/Cargo.toml";
+const DEFAULT_CLI_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/liam798/vvilog-cli/releases/latest";
 const DEFAULT_SKILLS_REPO_URL: &str = "https://github.com/liam798/vvilog-skills.git";
 
 #[derive(Parser)]
@@ -253,7 +253,7 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
     let url = args
         .url
         .unwrap_or_else(|| DEFAULT_CLI_INSTALL_URL.to_string());
-    let version_url = cli_manifest_url_from_install_url(&url);
+    let version_url = cli_version_url_from_install_url(&url);
     let command = format!("download {url} and run with sh");
     if args.dry_run {
         return output(
@@ -541,33 +541,30 @@ fn request_json(method: &Method, url: &str, api_key: &str, body: Option<Value>) 
     Ok(value)
 }
 
-fn cli_manifest_url_from_install_url(url: &str) -> String {
+fn cli_version_url_from_install_url(url: &str) -> String {
     if url == DEFAULT_CLI_INSTALL_URL {
-        return DEFAULT_CLI_MANIFEST_URL.to_string();
+        return DEFAULT_CLI_LATEST_RELEASE_URL.to_string();
     }
-    if let Some((base, filename)) = url.rsplit_once('/') {
-        if filename == "install.sh" {
-            return format!("{base}/Cargo.toml");
-        }
-    }
-    DEFAULT_CLI_MANIFEST_URL.to_string()
+    DEFAULT_CLI_LATEST_RELEASE_URL.to_string()
 }
 
 fn remote_cli_version(client: &Client, url: &str) -> Result<String> {
     let content = download_text(client, url)?;
-    let value: toml::Value = toml::from_str(&content).context("解析远端 Cargo.toml 失败")?;
-    value
-        .get("package")
-        .and_then(|package| package.get("version"))
-        .and_then(|version| version.as_str())
+    let value: Value = serde_json::from_str(&content).context("解析远端 release 信息失败")?;
+    let tag = value
+        .get("tag_name")
+        .and_then(|tag| tag.as_str())
+        .map(|tag| tag.trim_start_matches('v'))
         .map(ToString::to_string)
         .filter(|version| !version.is_empty())
-        .ok_or_else(|| anyhow!("无法解析远端 CLI 版本"))
+        .ok_or_else(|| anyhow!("无法解析远端 CLI release 版本"))?;
+    Ok(tag)
 }
 
 fn download_text(client: &Client, url: &str) -> Result<String> {
     let response = client
         .get(url)
+        .header("user-agent", "vvilog-cli")
         .send()
         .with_context(|| format!("下载失败: {url}"))?;
     let status = response.status();
