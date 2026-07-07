@@ -5,20 +5,14 @@
 ## 安装
 
 ```bash
-cd /Volumes/Disk_APFS/Work/XiaMao/Project/vvicat-analytics/cli
+cd /path/to/vvilog-cli
 sh install.sh
-```
-
-或在项目根目录运行：
-
-```bash
-make install-cli
 ```
 
 也可以像 Android CLI 一样通过安装脚本安装：
 
 ```bash
-curl -fsSL https://dl.vvicat.dev/vvilog/cli/latest/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh | sh
 ```
 
 ## 配置
@@ -85,32 +79,18 @@ vvilog manage-request delete /project/demo
 
 ## 更新
 
-`vvilog update` 默认从当前 `manageBaseUrl` 检查平台对应的 CLI 二进制版本；版本相同则不安装，发现新版本时才下载 `/cli/install.sh` 并覆盖本机 `~/.local/bin/vvilog`。更新命令只更新 CLI 二进制，不下载 skills；skills 由 `vvilog skills` 独立管理。
+`vvilog update` 默认从公开 `vvilog-cli` 仓库检查 `Cargo.toml` 版本；版本相同则不安装，发现新版本时才下载 `install.sh` 并覆盖本机 `~/.local/bin/vvilog`。更新命令只更新 CLI 二进制，不下载 skills；skills 由 `vvilog skills` 独立管理。
 
 ```bash
 vvilog update --dry-run
 vvilog update
 vvilog update --force
-vvilog update --url https://manage.example.com/manage/cli/install.sh
-```
-
-后端需要在 manage 服务中挂载对应资源：
-
-- `GET /cli/install.sh`
-- `GET /cli/bin/{target}/vvilog`
-
-二进制建议通过 `vvilog.cli.asset-dir` 指向外部发布目录，目录结构为：
-
-```text
-bin/darwin_arm64/vvilog
-bin/darwin_amd64/vvilog
-bin/linux_arm64/vvilog
-bin/linux_amd64/vvilog
+vvilog update --url https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh
 ```
 
 ## Skills
 
-`vvilog skills` 管理当前仓库内置技能，并可安装到本机 Codex skills 目录：
+`vvilog skills` 默认从公开 `vvilog-skills` 仓库同步技能到 `~/.vvilog/skills`，并可安装到本机 Codex skills 目录：
 
 ```bash
 vvilog skills list
@@ -120,4 +100,4 @@ vvilog skills add --all
 vvilog skills remove vvilog-api
 ```
 
-默认安装目录为 `${CODEX_HOME:-~/.codex}/skills`。`add` 支持传内置技能名或本地技能目录；`--all` 安装当前仓库全部内置技能；已安装时需要加 `--force` 才会覆盖。
+默认安装目录为 `${CODEX_HOME:-~/.codex}/skills`。`add` 支持传技能名或本地技能目录；`--all` 安装全部已同步技能；已安装时需要加 `--force` 才会覆盖。需要使用本地 skills 源时，可设置 `VVILOG_SKILLS_DIR=/path/to/vvilog-skills`。

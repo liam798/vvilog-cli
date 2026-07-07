@@ -9,9 +9,13 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const DEFAULT_CLI_INSTALL_URL: &str =
+    "https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh";
+const DEFAULT_CLI_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/liam798/vvilog-cli/main/Cargo.toml";
+const DEFAULT_SKILLS_REPO_URL: &str = "https://github.com/liam798/vvilog-skills.git";
 
 #[derive(Parser)]
 #[command(
@@ -59,7 +63,7 @@ struct InitArgs {
 struct UpdateArgs {
     #[arg(
         long,
-        help = "安装脚本 URL；不传时使用当前 manage 服务的 /cli/install.sh"
+        help = "安装脚本 URL；不传时使用公开 vvilog-cli 仓库的 install.sh"
     )]
     url: Option<String>,
     #[arg(long, help = "只显示将执行的更新动作")]
@@ -246,20 +250,10 @@ fn init(args: InitArgs, json_output: bool) -> Result<()> {
 }
 
 fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
-    let config = load_effective_config()?;
-    let url = args.url.unwrap_or_else(|| {
-        if config.manage_base_url.is_empty() {
-            String::new()
-        } else {
-            format!("{}/cli/install.sh", config.manage_base_url)
-        }
-    });
-    if url.is_empty() {
-        bail!("缺少更新源：请先配置 manageBaseUrl，或传入 --url");
-    }
-    let update_base = update_base_from_install_url(&url);
-    let target = platform_target()?;
-    let binary_url = format!("{update_base}/bin/{target}/vvilog");
+    let url = args
+        .url
+        .unwrap_or_else(|| DEFAULT_CLI_INSTALL_URL.to_string());
+    let version_url = cli_manifest_url_from_install_url(&url);
     let command = format!("download {url} and run with sh");
     if args.dry_run {
         return output(
@@ -267,7 +261,7 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
                 "ok": true,
                 "dryRun": true,
                 "url": url,
-                "binaryUrl": binary_url,
+                "versionUrl": version_url,
                 "command": command,
             }),
             json_output,
@@ -277,8 +271,7 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
         println!("Checking for updates...");
     }
     let client = Client::builder().build()?;
-    let remote_binary = download_file(&client, &binary_url, "vvilog-update")?;
-    let latest_version = binary_version(&remote_binary)?;
+    let latest_version = remote_cli_version(&client, &version_url)?;
     if latest_version == VERSION && !args.force {
         if json_output {
             return output(
@@ -288,13 +281,12 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
                     "currentVersion": VERSION,
                     "latestVersion": latest_version,
                     "url": url,
-                    "binaryUrl": binary_url,
+                    "versionUrl": version_url,
                 }),
                 true,
             );
         }
         println!("Already up-to-date with version {VERSION}.");
-        let _ = fs::remove_file(remote_binary);
         return Ok(());
     }
     if !json_output {
@@ -315,7 +307,6 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
     let script = response.text().context("读取安装脚本失败")?;
     let mut child = Command::new("sh")
         .arg("-s")
-        .env("VVILOG_UPDATE_BASE", update_base)
         .env("VVILOG_INSTALL_MODE", "update")
         .stdin(Stdio::piped())
         .stdout(if json_output {
@@ -347,7 +338,7 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
                 "currentVersion": VERSION,
                 "latestVersion": latest_version,
                 "url": url,
-                "binaryUrl": binary_url,
+                "versionUrl": version_url,
                 "command": command,
                 "exitCode": result.status.code(),
                 "stdout": String::from_utf8_lossy(&result.stdout),
@@ -356,7 +347,6 @@ fn update(args: UpdateArgs, json_output: bool) -> Result<()> {
             true,
         )?;
     }
-    let _ = fs::remove_file(remote_binary);
     if !result.status.success() {
         bail!("update failed");
     }
@@ -551,23 +541,31 @@ fn request_json(method: &Method, url: &str, api_key: &str, body: Option<Value>) 
     Ok(value)
 }
 
-fn update_base_from_install_url(url: &str) -> String {
-    url.rsplit_once('/')
-        .map(|(base, _)| base.to_string())
-        .unwrap_or_else(|| url.to_string())
-}
-
-fn platform_target() -> Result<&'static str> {
-    match (env::consts::OS, env::consts::ARCH) {
-        ("macos", "aarch64") => Ok("darwin_arm64"),
-        ("macos", "x86_64") => Ok("darwin_amd64"),
-        ("linux", "aarch64") => Ok("linux_arm64"),
-        ("linux", "x86_64") => Ok("linux_amd64"),
-        _ => bail!("不支持的平台: {}-{}", env::consts::OS, env::consts::ARCH),
+fn cli_manifest_url_from_install_url(url: &str) -> String {
+    if url == DEFAULT_CLI_INSTALL_URL {
+        return DEFAULT_CLI_MANIFEST_URL.to_string();
     }
+    if let Some((base, filename)) = url.rsplit_once('/') {
+        if filename == "install.sh" {
+            return format!("{base}/Cargo.toml");
+        }
+    }
+    DEFAULT_CLI_MANIFEST_URL.to_string()
 }
 
-fn download_file(client: &Client, url: &str, prefix: &str) -> Result<PathBuf> {
+fn remote_cli_version(client: &Client, url: &str) -> Result<String> {
+    let content = download_text(client, url)?;
+    let value: toml::Value = toml::from_str(&content).context("解析远端 Cargo.toml 失败")?;
+    value
+        .get("package")
+        .and_then(|package| package.get("version"))
+        .and_then(|version| version.as_str())
+        .map(ToString::to_string)
+        .filter(|version| !version.is_empty())
+        .ok_or_else(|| anyhow!("无法解析远端 CLI 版本"))
+}
+
+fn download_text(client: &Client, url: &str) -> Result<String> {
     let response = client
         .get(url)
         .send()
@@ -576,46 +574,7 @@ fn download_file(client: &Client, url: &str, prefix: &str) -> Result<PathBuf> {
     if !status.is_success() {
         bail!("下载失败: HTTP {}", status.as_u16());
     }
-    let bytes = response.bytes().context("读取下载内容失败")?;
-    let mut path = env::temp_dir();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    path.push(format!("{prefix}-{}-{now}", std::process::id()));
-    fs::write(&path, &bytes)?;
-    make_executable(&path)?;
-    Ok(path)
-}
-
-#[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = fs::metadata(path)?.permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-fn binary_version(path: &Path) -> Result<String> {
-    let output = Command::new(path)
-        .arg("--version")
-        .output()
-        .with_context(|| format!("读取远端版本失败: {}", path.display()))?;
-    if !output.status.success() {
-        bail!("读取远端版本失败");
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    text.split_whitespace()
-        .last()
-        .map(ToString::to_string)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("无法解析远端版本"))
+    response.text().context("读取下载内容失败")
 }
 
 fn load_effective_config() -> Result<EffectiveConfig> {
@@ -686,14 +645,7 @@ fn bundled_skills_dir() -> PathBuf {
     if let Some(path) = env::var_os("VVILOG_SKILLS_DIR") {
         return PathBuf::from(path);
     }
-    let installed = config_dir().join("skills");
-    if installed.exists() {
-        return installed;
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("skills")
+    config_dir().join("skills")
 }
 
 fn installed_skills_dir() -> PathBuf {
@@ -714,6 +666,7 @@ struct SkillInfo {
 }
 
 fn list_bundled_skills() -> Result<Vec<SkillInfo>> {
+    ensure_skills_cache()?;
     let root = bundled_skills_dir();
     if !root.exists() {
         return Ok(Vec::new());
@@ -748,6 +701,7 @@ fn list_bundled_skills() -> Result<Vec<SkillInfo>> {
 }
 
 fn resolve_skill_source(input: &str) -> Result<PathBuf> {
+    ensure_skills_cache()?;
     let candidates = [PathBuf::from(input), bundled_skills_dir().join(input)];
     for candidate in candidates {
         let path = if candidate.is_absolute() {
@@ -760,6 +714,34 @@ fn resolve_skill_source(input: &str) -> Result<PathBuf> {
         }
     }
     bail!("找不到技能: {input}")
+}
+
+fn ensure_skills_cache() -> Result<()> {
+    if env::var_os("VVILOG_SKILLS_DIR").is_some() {
+        return Ok(());
+    }
+    let root = bundled_skills_dir();
+    if root.join(".git").exists() || root.join("vvilog-api/SKILL.md").exists() {
+        return Ok(());
+    }
+    if root.exists() {
+        bail!(
+            "skills 缓存目录已存在但不是有效的 vvilog-skills 仓库: {}",
+            root.display()
+        );
+    }
+    if let Some(parent) = root.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let status = Command::new("git")
+        .args(["clone", "--depth", "1", DEFAULT_SKILLS_REPO_URL])
+        .arg(&root)
+        .status()
+        .with_context(|| "同步 skills 失败：缺少 git 或无法启动 git clone")?;
+    if !status.success() {
+        bail!("同步 skills 失败: git clone 退出码 {:?}", status.code());
+    }
+    Ok(())
 }
 
 fn read_skill_metadata(path: &Path) -> Result<std::collections::BTreeMap<String, String>> {
