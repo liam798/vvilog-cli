@@ -88,6 +88,23 @@ vvilog update --force
 vvilog update --url https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh
 ```
 
+## 发布
+
+推送 `v*` tag 会触发 GitHub Actions 自动构建并发布 release：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+release 资产命名固定为：
+
+- `vvilog-darwin-amd64`
+- `vvilog-darwin-arm64`
+- `vvilog-linux-amd64`
+- `vvilog-linux-arm64`
+- `vvilog-windows-amd64.exe`
+
 ## Skills
 
 `vvilog skills` 默认从公开 `vvilog-skills` 仓库同步技能到 `~/.vvilog/skills`，并可安装到本机 Codex skills 目录：

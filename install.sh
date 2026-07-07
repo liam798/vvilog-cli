@@ -1,8 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-VERSION="${VVILOG_CLI_VERSION:-v0.1.0}"
-BASE_URL="${VVILOG_CLI_BASE_URL:-https://github.com/liam798/vvilog-cli/releases/download/$VERSION}"
+VERSION="${VVILOG_CLI_VERSION:-latest}"
+if [ "$VERSION" = "latest" ]; then
+  DEFAULT_BASE_URL="https://github.com/liam798/vvilog-cli/releases/latest/download"
+else
+  DEFAULT_BASE_URL="https://github.com/liam798/vvilog-cli/releases/download/$VERSION"
+fi
+BASE_URL="${VVILOG_CLI_BASE_URL:-$DEFAULT_BASE_URL}"
 PREFIX="${VVILOG_INSTALL_DIR:-$HOME/.local/bin}"
 STATE_DIR="${VVILOG_STATE_DIR:-$HOME/.vvilog}"
 
@@ -14,6 +19,7 @@ fi
 case "$(uname -s)" in
   Darwin) os="darwin" ;;
   Linux) os="linux" ;;
+  MINGW* | MSYS* | CYGWIN* | Windows_NT) os="windows" ;;
   *)
     echo "vvilog install error: unsupported OS $(uname -s)" >&2
     exit 1
@@ -30,6 +36,11 @@ case "$(uname -m)" in
 esac
 
 asset="vvilog-${os}-${arch}"
+binary_name="vvilog"
+if [ "$os" = "windows" ]; then
+  asset="${asset}.exe"
+  binary_name="vvilog.exe"
+fi
 url="${BASE_URL}/${asset}"
 tmp="${TMPDIR:-/tmp}/vvilog-install-$$"
 
@@ -43,10 +54,10 @@ curl -fsSL "$url" -o "$tmp"
 chmod 0755 "$tmp"
 
 mkdir -p "$PREFIX" "$STATE_DIR"
-mv "$tmp" "$PREFIX/vvilog"
+mv "$tmp" "$PREFIX/$binary_name"
 
 echo "VviLog CLI installed:"
-echo "  binary: $PREFIX/vvilog"
+echo "  binary: $PREFIX/$binary_name"
 echo "  skills: $STATE_DIR/skills"
 echo
 echo "If '$PREFIX' is not on PATH, add it to your shell profile:"

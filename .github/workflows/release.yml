@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            asset: vvilog-darwin-amd64
+          - runner: macos-14
+            asset: vvilog-darwin-arm64
+          - runner: ubuntu-latest
+            asset: vvilog-linux-amd64
+          - runner: ubuntu-24.04-arm
+            asset: vvilog-linux-arm64
+          - runner: windows-latest
+            asset: vvilog-windows-amd64.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Prepare asset
+        shell: bash
+        run: |
+          if [[ "${{ matrix.runner }}" == windows-* ]]; then
+            cp target/release/vvilog.exe "${{ matrix.asset }}"
+          else
+            cp target/release/vvilog "${{ matrix.asset }}"
+          fi
+          chmod 0755 "${{ matrix.asset }}"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}
