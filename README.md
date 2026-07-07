@@ -9,7 +9,7 @@ cd /path/to/vvilog-cli
 sh install.sh
 ```
 
-也可以像 Android CLI 一样通过安装脚本安装：
+也可以通过以下命令一键在线安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh | sh
