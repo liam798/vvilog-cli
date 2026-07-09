@@ -57,6 +57,7 @@ vvilog init \
 vvilog update --dry-run
 vvilog config show
 vvilog skills list
+vvilog skills releases
 vvilog skills find api
 vvilog skills add vvilog-api --dry-run
 vvilog --json api-request post /flow/getFlow --body '{"projectName":"demo"}'
@@ -107,14 +108,15 @@ release 资产命名固定为：
 
 ## Skills
 
-`vvilog skills` 默认从公开 `vvilog-skills` 仓库同步技能到 `~/.vvilog/skills`，并可安装到本机 Codex skills 目录：
+`vvilog skills` 用于查看和安装 VviLog skills。`list` 只列出已安装到当前 Codex Agent 的 VviLog 技能，`releases` 在线查询公开 `vvilog-skills` 仓库并列出全部可用技能：
 
 ```bash
-vvilog skills list
-vvilog skills find api
-vvilog skills add vvilog-api
-vvilog skills add --all
-vvilog skills remove vvilog-api
+vvilog skills list              # 已安装技能
+vvilog skills releases          # 全部可用技能
+vvilog skills find api          # 按关键字搜索可用技能
+vvilog skills add vvilog-api    # 安装指定技能
+vvilog skills add --all         # 安装全部可用技能
+vvilog skills remove vvilog-api # 移除已安装技能
 ```
 
-默认安装目录为 `${CODEX_HOME:-~/.codex}/skills`。`add` 支持传技能名或本地技能目录；`--all` 安装全部已同步技能；已安装时需要加 `--force` 才会覆盖。需要使用本地 skills 源时，可设置 `VVILOG_SKILLS_DIR=/path/to/vvilog-skills`。
+`releases` 和 `find` 默认在线查询 GitHub；`add` 会将公开 `vvilog-skills` 仓库同步到 `~/.vvilog/skills` 后再安装。默认安装目录为 `${CODEX_HOME:-~/.codex}/skills`，当前不会安装到 `~/.agents/skills`。`add` 支持传技能名或本地技能目录；`--all` 安装全部可用技能；已安装时需要加 `--force` 才会覆盖。需要使用本地 skills 源时，可设置 `VVILOG_SKILLS_DIR=/path/to/vvilog-skills`。

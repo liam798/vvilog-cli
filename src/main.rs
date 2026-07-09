@@ -9,6 +9,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_CLI_INSTALL_URL: &str =
@@ -16,6 +17,8 @@ const DEFAULT_CLI_INSTALL_URL: &str =
 const DEFAULT_CLI_LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/liam798/vvilog-cli/releases/latest";
 const DEFAULT_SKILLS_REPO_URL: &str = "https://github.com/liam798/vvilog-skills.git";
+const DEFAULT_SKILLS_RAW_BASE_URL: &str =
+    "https://raw.githubusercontent.com/liam798/vvilog-skills/main";
 
 #[derive(Parser)]
 #[command(
@@ -96,8 +99,10 @@ enum SkillsCommands {
     Add(SkillsAddArgs),
     #[command(about = "移除技能")]
     Remove(SkillsRemoveArgs),
-    #[command(about = "列出可用技能")]
+    #[command(about = "列出已安装技能")]
     List(SkillsListArgs),
+    #[command(about = "列出可用技能")]
+    Releases(SkillsReleasesArgs),
     #[command(about = "按关键字查找技能")]
     Find(SkillsFindArgs),
 }
@@ -123,10 +128,10 @@ struct SkillsRemoveArgs {
 }
 
 #[derive(Args)]
-struct SkillsListArgs {
-    #[arg(long, help = "只显示已安装的内置技能")]
-    installed: bool,
-}
+struct SkillsListArgs {}
+
+#[derive(Args)]
+struct SkillsReleasesArgs {}
 
 #[derive(Args)]
 struct SkillsFindArgs {
@@ -219,6 +224,7 @@ fn run(cli: Cli) -> Result<()> {
             SkillsCommands::Add(args) => skills_add(args, cli.json),
             SkillsCommands::Remove(args) => skills_remove(args, cli.json),
             SkillsCommands::List(args) => skills_list(args, cli.json),
+            SkillsCommands::Releases(args) => skills_releases(args, cli.json),
             SkillsCommands::Find(args) => skills_find(args, cli.json),
         },
         Commands::ApiRequest(cmd) => request_command(RequestBase::Api, cmd, cli.json),
@@ -404,15 +410,28 @@ fn request_call(
     output(value, json_output)
 }
 
-fn skills_list(args: SkillsListArgs, json_output: bool) -> Result<()> {
-    let skills = list_bundled_skills()?;
-    let items: Vec<_> = skills
-        .into_iter()
-        .filter(|skill| !args.installed || skill.installed)
-        .collect();
+fn skills_list(_args: SkillsListArgs, json_output: bool) -> Result<()> {
+    let items = list_installed_skills()?;
+    if !json_output {
+        return print_skills(&items, false);
+    }
     output(
         json!({
-            "bundledSkillsDir": bundled_skills_dir(),
+            "installedSkillsDir": installed_skills_dir(),
+            "items": items,
+        }),
+        json_output,
+    )
+}
+
+fn skills_releases(_args: SkillsReleasesArgs, json_output: bool) -> Result<()> {
+    let items = list_remote_skills()?;
+    if !json_output {
+        return print_skills(&items, true);
+    }
+    output(
+        json!({
+            "source": DEFAULT_SKILLS_REPO_URL,
             "installedSkillsDir": installed_skills_dir(),
             "items": items,
         }),
@@ -422,7 +441,7 @@ fn skills_list(args: SkillsListArgs, json_output: bool) -> Result<()> {
 
 fn skills_find(args: SkillsFindArgs, json_output: bool) -> Result<()> {
     let query = args.keyword.to_lowercase();
-    let items: Vec<_> = list_bundled_skills()?
+    let items: Vec<_> = list_remote_skills()?
         .into_iter()
         .filter(|skill| {
             let path = skill.path.to_string_lossy();
@@ -431,15 +450,51 @@ fn skills_find(args: SkillsFindArgs, json_output: bool) -> Result<()> {
                 || path.to_lowercase().contains(&query)
         })
         .collect();
+    if !json_output {
+        return print_skills(&items, true);
+    }
     output(
         json!({
             "query": query,
-            "bundledSkillsDir": bundled_skills_dir(),
+            "source": DEFAULT_SKILLS_REPO_URL,
             "installedSkillsDir": installed_skills_dir(),
             "items": items,
         }),
         json_output,
     )
+}
+
+fn print_skills(items: &[SkillInfo], show_installed_marker: bool) -> Result<()> {
+    if items.is_empty() {
+        println!("没有找到技能。");
+        return Ok(());
+    }
+    for skill in items {
+        let marker = if show_installed_marker && skill.installed {
+            " [已安装]"
+        } else {
+            ""
+        };
+        let description = compact_description(&skill.description);
+        if description.is_empty() {
+            println!("{}{}", skill.name, marker);
+        } else {
+            println!("{}{} - {}", skill.name, marker, description);
+        }
+    }
+    Ok(())
+}
+
+fn compact_description(value: &str) -> String {
+    let single_line = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX_CHARS: usize = 96;
+    let mut chars = single_line.chars();
+    let compact: String = chars.by_ref().take(MAX_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{compact}...")
+    } else {
+        compact
+    }
 }
 
 fn skills_add(args: SkillsAddArgs, json_output: bool) -> Result<()> {
@@ -662,14 +717,42 @@ struct SkillInfo {
     installed_path: PathBuf,
 }
 
+fn list_remote_skills() -> Result<Vec<SkillInfo>> {
+    let temp_dir = env::temp_dir().join(format!(
+        "vvilog-skills-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    let status = Command::new("git")
+        .args(["clone", "--depth", "1", DEFAULT_SKILLS_REPO_URL])
+        .arg(&temp_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| "在线查询 skills 失败：缺少 git 或无法启动 git clone")?;
+    if !status.success() {
+        bail!("在线查询 skills 失败: git clone 退出码 {:?}", status.code());
+    }
+    let result = list_skills_from_dir(&temp_dir, Some(DEFAULT_SKILLS_RAW_BASE_URL));
+    let _ = fs::remove_dir_all(&temp_dir);
+    result
+}
+
 fn list_bundled_skills() -> Result<Vec<SkillInfo>> {
     ensure_skills_cache()?;
     let root = bundled_skills_dir();
     if !root.exists() {
         return Ok(Vec::new());
     }
+    list_skills_from_dir(&root, None)
+}
+
+fn list_skills_from_dir(root: &Path, raw_base_url: Option<&str>) -> Result<Vec<SkillInfo>> {
     let mut items = Vec::new();
-    for entry in fs::read_dir(&root)? {
+    for entry in fs::read_dir(root)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
@@ -685,16 +768,32 @@ fn list_bundled_skills() -> Result<Vec<SkillInfo>> {
             .cloned()
             .unwrap_or_else(|| entry.file_name().to_string_lossy().to_string());
         let installed_path = installed_skills_dir().join(&name);
+        let path = if let Some(base_url) = raw_base_url {
+            PathBuf::from(format!(
+                "{}/{}/SKILL.md",
+                base_url,
+                entry.file_name().to_string_lossy()
+            ))
+        } else {
+            skill_dir
+        };
         items.push(SkillInfo {
             name,
             description: meta.get("description").cloned().unwrap_or_default(),
-            path: skill_dir,
-            installed: installed_path.exists(),
+            path,
+            installed: installed_path.join("SKILL.md").exists(),
             installed_path,
         });
     }
     items.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(items)
+}
+
+fn list_installed_skills() -> Result<Vec<SkillInfo>> {
+    Ok(list_remote_skills()?
+        .into_iter()
+        .filter(|skill| skill.installed)
+        .collect())
 }
 
 fn resolve_skill_source(input: &str) -> Result<PathBuf> {
@@ -743,26 +842,37 @@ fn ensure_skills_cache() -> Result<()> {
 
 fn read_skill_metadata(path: &Path) -> Result<std::collections::BTreeMap<String, String>> {
     let content = fs::read_to_string(path)?;
+    Ok(read_skill_metadata_from_str(&content))
+}
+
+fn read_skill_metadata_from_str(content: &str) -> std::collections::BTreeMap<String, String> {
     let mut map = std::collections::BTreeMap::new();
     let Some(rest) = content.strip_prefix("---\n") else {
-        return Ok(map);
+        return map;
     };
     let Some((frontmatter, _)) = rest.split_once("\n---") else {
-        return Ok(map);
+        return map;
     };
-    for line in frontmatter.lines() {
+    let mut lines = frontmatter.lines().peekable();
+    while let Some(line) = lines.next() {
         if let Some((key, value)) = line.split_once(':') {
-            map.insert(
-                key.trim().to_string(),
-                value
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string(),
-            );
+            let value = value.trim();
+            let value = if matches!(value, ">" | ">-" | "|" | "|-") {
+                let mut parts = Vec::new();
+                while let Some(next) = lines.peek() {
+                    if !next.starts_with(' ') && !next.starts_with('\t') {
+                        break;
+                    }
+                    parts.push(lines.next().unwrap_or_default().trim());
+                }
+                parts.join(" ")
+            } else {
+                value.trim_matches('"').trim_matches('\'').to_string()
+            };
+            map.insert(key.trim().to_string(), value);
         }
     }
-    Ok(map)
+    map
 }
 
 fn install_skill(source: &Path, force: bool, dry_run: bool) -> Result<Value> {
