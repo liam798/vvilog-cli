@@ -1,6 +1,6 @@
 {
   "name": "vvilog",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "VviLog CLI for configuration, updates, skills and raw API requests",
   "license": "Apache-2.0",
   "bin": {

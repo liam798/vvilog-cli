@@ -3,9 +3,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { doctor } = require("../lib/doctor");
 const { normalizeBaseUrl } = require("../lib/config");
 const { normalizeRequestPath } = require("../lib/request");
-const { installSkillToTargets, listAvailableSkills } = require("../lib/skills");
+const { installSkillToTargets, listAvailableSkills, removeSkillFromTargets } = require("../lib/skills");
 
 const CLI = path.resolve(__dirname, "../bin/vvilog.js");
 
@@ -58,6 +59,13 @@ async function main() {
   const available = listAvailableSkills({ sourceDir: source });
   assert.equal(available.items.length, 1);
   assert.equal(available.items[0].name, "vvilog-api");
+  assert.equal(available.items[0].installed, true);
+  assert.ok(available.items[0].installations.some((item) => item.agent === "codex" && item.installed));
+
+  const doctorPayload = doctor({ sourceDir: source });
+  assert.equal(doctorPayload.package, "vvilog");
+  assert.ok(Array.isArray(doctorPayload.missingConfig));
+  assert.ok(Array.isArray(doctorPayload.agents));
 
   const cliResult = await runCli(["--json", "init", "--source-dir", source], {
     env: { HOME: tempRoot, USERPROFILE: tempRoot },
@@ -70,6 +78,10 @@ async function main() {
   });
   assert.equal(check.code, 0, check.stderr);
   assert.equal(JSON.parse(check.stdout).package, "vvilog");
+
+  const removeResult = removeSkillFromTargets({ skill: "vvilog-api", homeDir: tempRoot });
+  assert.equal(removeResult.ok, true);
+  assert.ok(!fs.existsSync(path.join(tempRoot, ".codex", "skills", "vvilog-api", "SKILL.md")));
 
   fs.rmSync(tempRoot, { recursive: true, force: true });
   process.stdout.write("所有测试通过。\n");

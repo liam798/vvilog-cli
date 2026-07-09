@@ -50,15 +50,17 @@ vvilog config set default_project demo
 ```json
 {
   "ok": false,
-  "error": "错误说明",
-  "status": 500,
-  "body": {}
+  "error": {
+    "type": "VviLogCliError",
+    "message": "错误说明"
+  }
 }
 ```
 
 ## 常用命令
 
 ```bash
+vvilog --json doctor
 vvilog update --check
 vvilog config list
 vvilog init
@@ -96,6 +98,22 @@ vvilog update --spec git+https://github.com/liam798/vvilog-cli.git
 
 更新命令只更新 CLI 包，不自动安装 skills；skills 由 `vvilog init` 或 `vvilog skills add` 管理。
 
+## 诊断
+
+`doctor` 只检查环境和配置，不写配置、不安装 skills。缺少配置时会返回 `missingConfig` 和建议命令：
+
+```bash
+vvilog --json doctor
+```
+
+`doctor` 会检查：
+
+- Node/npm/git 是否可用
+- CLI 版本
+- `api_key`、`api_base_url`、`manage_base_url` 是否配置
+- VviLog skills 在各 Agent 目录中的安装状态
+- 已检测到的 Agent skills 目录
+
 ## Skills
 
 `vvilog skills` 用于查看和安装 VviLog skills。`list` 只列出已安装到当前 Codex Agent 的 VviLog 技能，`releases` 在线查询公开 `vvilog-skills` 仓库并列出全部可用技能：
@@ -106,7 +124,7 @@ vvilog skills releases          # 全部可用技能
 vvilog skills find api          # 按关键字搜索可用技能
 vvilog skills add vvilog-api    # 安装指定技能
 vvilog skills add --all         # 安装全部可用技能
-vvilog skills remove vvilog-api # 移除已安装技能
+vvilog skills remove vvilog-api # 从检测到的 Agent 目录移除技能
 ```
 
 `releases` 和 `find` 默认在线查询 GitHub。`init` 和 `skills add` 会下载公开 `vvilog-skills` 仓库，并把 `vvilog-api` 安装到本机已检测到的 AI Agent skills 目录，例如 `~/.codex/skills/vvilog-api`、`~/.cursor/skills/vvilog-api`、`~/.claude/skills/vvilog-api`，同时安装到兜底目录 `~/.agents/skills/vvilog-api`。
