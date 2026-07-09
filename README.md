@@ -1,18 +1,24 @@
 # VviLog CLI
 
-面向 Codex 和本机调试的 `vvilog` 命令。当前只保留配置、更新、Skills 管理和后端请求能力；业务分析、Adjust 等能力后续通过 skills 或 CLI 更新补充。
+面向 AI Agent、工程师和本机调试的一方 Node CLI。当前保留配置、更新、Skills 管理和后端请求能力；业务分析、Adjust 等能力通过 skills 或后续 CLI 更新补充。
 
 ## 安装
 
 ```bash
-cd /path/to/vvilog-cli
-cargo build --release
+npm install -g git+https://github.com/liam798/vvilog-cli.git
 ```
 
 也可以通过以下命令一键在线安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh | sh
+```
+
+开发者本地安装：
+
+```bash
+cd /path/to/vvilog-cli
+npm install -g .
 ```
 
 ## 配置
@@ -26,17 +32,16 @@ export VVILOG_MANAGE_BASE_URL=https://analytics.example.com/manage
 export VVILOG_DEFAULT_PROJECT=demo
 ```
 
-也可以写入 `~/.vvilog/config.toml`：
+也可以写入 `~/.config/vvilog/config.json`：
 
 ```bash
-vvilog init \
-  --api-key clk_xxx \
-  --api-url https://analytics.example.com/api \
-  --manage-url https://analytics.example.com/manage \
-  --default-project demo
+vvilog config set api_key clk_xxx
+vvilog config set api_base_url https://analytics.example.com/api
+vvilog config set manage_base_url https://analytics.example.com/manage
+vvilog config set default_project demo
 ```
 
-新版默认写入 TOML 配置；为了兼容旧版本，仍会在没有 TOML 文件时读取 `~/.vvilog/config.json`。
+`init` 用于初始化 Agent skills，不写服务配置。
 
 ## JSON 策略
 
@@ -54,8 +59,9 @@ vvilog init \
 ## 常用命令
 
 ```bash
-vvilog update --dry-run
-vvilog config show
+vvilog update --check
+vvilog config list
+vvilog init
 vvilog skills list
 vvilog skills releases
 vvilog skills find api
@@ -80,31 +86,15 @@ vvilog manage-request delete /project/demo
 
 ## 更新
 
-`vvilog update` 默认从公开 `vvilog-cli` GitHub Release 检查最新版本；版本相同则不安装，发现新版本时才下载 `install.sh` 并覆盖本机 `~/.local/bin/vvilog`。安装脚本下载对应平台的预编译二进制，不要求用户本地安装 Rust。更新命令只更新 CLI 二进制，不下载 skills；skills 由 `vvilog skills` 独立管理。
+`vvilog update` 参考 `testclaw-cli`，默认通过 npm 从公开 GitHub 仓库检查并更新：
 
 ```bash
-vvilog update --dry-run
+vvilog update --check
 vvilog update
-vvilog update --force
-vvilog update --url https://raw.githubusercontent.com/liam798/vvilog-cli/main/install.sh
+vvilog update --spec git+https://github.com/liam798/vvilog-cli.git
 ```
 
-## 发布
-
-推送 `v*` tag 会触发 GitHub Actions 自动构建并发布 release：
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-release 资产命名固定为：
-
-- `vvilog-darwin-amd64`
-- `vvilog-darwin-arm64`
-- `vvilog-linux-amd64`
-- `vvilog-linux-arm64`
-- `vvilog-windows-amd64.exe`
+更新命令只更新 CLI 包，不自动安装 skills；skills 由 `vvilog init` 或 `vvilog skills add` 管理。
 
 ## Skills
 
@@ -119,4 +109,11 @@ vvilog skills add --all         # 安装全部可用技能
 vvilog skills remove vvilog-api # 移除已安装技能
 ```
 
-`releases` 和 `find` 默认在线查询 GitHub；`add` 会将公开 `vvilog-skills` 仓库同步到 `~/.vvilog/skills` 后再安装。默认安装目录为 `${CODEX_HOME:-~/.codex}/skills`，当前不会安装到 `~/.agents/skills`。`add` 支持传技能名或本地技能目录；`--all` 安装全部可用技能；已安装时需要加 `--force` 才会覆盖。需要使用本地 skills 源时，可设置 `VVILOG_SKILLS_DIR=/path/to/vvilog-skills`。
+`releases` 和 `find` 默认在线查询 GitHub。`init` 和 `skills add` 会下载公开 `vvilog-skills` 仓库，并把 `vvilog-api` 安装到本机已检测到的 AI Agent skills 目录，例如 `~/.codex/skills/vvilog-api`、`~/.cursor/skills/vvilog-api`、`~/.claude/skills/vvilog-api`，同时安装到兜底目录 `~/.agents/skills/vvilog-api`。
+
+离线或开发场景可指定本地 skills 仓库：
+
+```bash
+vvilog init --source-dir ./vvilog-skills
+vvilog skills add vvilog-api --source-dir ./vvilog-skills
+```
